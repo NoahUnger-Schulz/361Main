@@ -203,7 +203,7 @@ def undo():
 
 
 Intro="""
-Welcome to psudesmos 
+Welcome to  math graphy
 
 Your free offline graphing program
 
