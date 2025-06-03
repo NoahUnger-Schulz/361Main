@@ -15,7 +15,7 @@ def eval_parens(string,functions,vars):
             #print(expr)    
             if string[left-1] in functions.keys():
                 left-=1
-                mid=str(functions[string[left]]([eval(x,{},vars) for x in expr.split(",")]))
+                mid=str(functions[string[left]]([eval(x,{},vars) for x in expr[1:-1].split(",")]))
             else:
                 mid=str((eval(expr,{},vars)))
             if not (string[left-1] in "(+-*/%^" or left<1):
@@ -23,13 +23,12 @@ def eval_parens(string,functions,vars):
             string=string[:left]+mid+string[i+1:]  
             i+=len(mid)-len(expr)-1 #this -1 could have reprecussions
         i+=1
+    print(string)
     return string  
 
-
-eval_parens("(((x+5.1)f(y))%(g(h(x))+1)+(3.3(5)))",
-            {"f":lambda x:eval("x**2",{"x":float(x[0])}),"g":lambda x:2*float(x[0]),"h":lambda x:float(x[0])+1}
+eval_parens("f(sin(1)+2,3+4)",
+            {"f":lambda x:eval("x*y",{"x":float(x[0])},{"y":float(x[1])}),"g":lambda x:2*float(x[0]),"h":lambda x:float(x[0])+1}
             ,{"x":3,"y":1})
-
 
 
 def check_type(string):
@@ -55,4 +54,4 @@ def define(string,functions):
     if name in functions:
         return None,None,None
     functions[name]=[expr,vars]
-    return name,vars, functions
+    return name,vars,functions

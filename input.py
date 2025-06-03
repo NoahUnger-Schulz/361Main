@@ -92,13 +92,14 @@ class Textbox:
         self.text = text
         self.props=dict(boxstyle='round', facecolor='wheat')
         self.bb=None
-        self.xbox=None
+        self.xbox="not none"
     def plot(self):
         t=plt.text(self.coords[0], self.coords[1], self.text, fontsize=14,transform=ax.transAxes,
         verticalalignment='top', bbox=self.props)  
         self.bb=t.get_window_extent()
-        self.xbox=xbox(self.bb.xmax,self.bb.ymax,self)
-        self.xbox.plot()
+        if self.xbox!=None:
+            self.xbox=xbox(self.bb.xmax,self.bb.ymax,self)
+            self.xbox.plot()
         return  self.bb
     def in_bounds(self,x,y):
         if self.xbox!=None:
@@ -111,19 +112,13 @@ class Textbox:
     def clicked(self,x,y):
         return self.in_bounds(x,y)
 
+
+
 class xbox(Textbox):
     def __init__(self,x,y,parent):
-        self.coords = [x/1000-.13,y/750-0.13]
-        self.text = "X"
-        self.props=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-        self.bb=None
+        super().__init__(x/1000-.13,y/750-0.13,"X")
         self.parent=parent
         self.xbox=None
-    def plot(self):
-        t=plt.text(self.coords[0], self.coords[1], self.text, fontsize=14,transform=ax.transAxes,
-        verticalalignment='top', bbox=self.props)  
-        self.bb=t.get_window_extent()
-        return  self.bb
     def clicked(self,x,y):
         in_b=self.in_bounds(x,y)
         if in_b:
@@ -147,7 +142,7 @@ class xbox(Textbox):
     
 class Line(Textbox):
     def __init__(self, index,text):
-        super().__init__(0.02,.98-index*.09,text)
+        super().__init__(0.02,.98-(index)*.09,text)
         self.index=index
     #plot the cursor
     def clicked(self,x,y):
@@ -155,7 +150,7 @@ class Line(Textbox):
         if in_b:
             save([s,Textboxes,Lines,self.index])
         return in_b
-    def plot(self):
+    def plot(self,err):
         if self.text=="":
             lines=deepcopy(Lines)
             lines.remove(self)
@@ -165,7 +160,21 @@ class Line(Textbox):
                 self.text=self.text+"|"
         elif self.index!=line:
             self.text=self.text[:-1]
+        temp=self.text
+        self.text+=err
         super().plot()
+        self.text=temp
+
+class Title(Line):
+    def __init__(self,text):
+        super().__init__(0,text)
+        self.props=dict( facecolor='tan')
+        self.xbox=None
+    def plot(self,dummy):
+        if self.text=="":
+            self.text+=" "
+        super().plot("")
+        self.xbox
 
     
 
@@ -180,6 +189,7 @@ class button(xbox):
         if in_b:
             self.func()
         return in_b
+
 class link(button):
     def __init__(self,x,y, text,parent,func):
         super().__init__(x,y, text,func)
@@ -191,6 +201,7 @@ class link(button):
             super().plot()
         else:
             Textboxes.remove(self)
+
 class shortcut(button):
     def __init__(self,x,y, text,boxes):
         super().__init__(x,y,text,None)
@@ -240,17 +251,16 @@ scale the window
 
 
 
-
-These are not 
-operational 
-yet wait for 
-the next 
-update :) 
+To save a file edit the title 
+and then hit save
+To Open a file hit open 
+switch to that file's line
+and then hit enter
 
 Save
-Copy
 Open
 """
+
 
 def upscale():
         global s
@@ -268,11 +278,103 @@ def downscale():
         global s
         s*=1.1
 
+def value(dic):
+    return dic['words']
+
+def listmax(L):
+    max=[]
+    for elem in L:
+        if len(elem)>len(max):
+            max=elem
+    return max
+
+import zmq
+import dill as pickle
+
+context = zmq.Context()
+socket = context.socket(zmq.REQ)
+socket.connect("tcp://localhost:5555")
+
+open_mode=False
+user_id="Noah"
+
+
+Lines=[Title(" Untitled"),Line(0," hello"),Line(1," (1,1)")]
+line=0
+past_states=[]
+redo_states=[]
+Textboxes=[]
+
+def upload():
+    title=Lines[0].text
+    if title[-1]!="|":
+        title+='|'
+    #dumps current state
+    dump=list(map(lambda data:str(pickle.dumps(data), encoding="latin1"),[s,Textboxes,Lines,line]))
+    print(dump)
+    socket.send_json({
+        "user_id": user_id+":"+title,
+        "action": "save",
+        "words": dump
+    })
+    #gets lists of titles
+    print(socket.recv_string())
+    socket.send_json({
+    "user_id": user_id,
+    "action": "history"
+    })
+    titles=socket.recv_json()
+    if len(titles)>0:
+        print(titles)
+        titles=listmax(list(map(value,titles)))
+        print(titles)
+        #adds title if needed
+        if not title in titles:
+            save_request = {
+                "user_id": user_id,
+                "action": "save",
+                "words": titles+[title]
+            }
+            socket.send_json(save_request)
+            print(titles+[title])
+            print(socket.recv_string())
+    else:
+        save_request = {
+                "user_id": user_id,
+                "action": "save",
+                "words": [title]
+            }
+        socket.send_json(save_request)
+        print(title)
+        print(socket.recv_string())
+
+def Open():
+    global open_mode
+    socket.send_json({
+    "user_id": user_id,
+    "action": "history"
+    })
+    print("Open")
+    titles=listmax(list(map(value,socket.recv_json())))
+    print(titles)
+    lines=[]
+    for i in range(len(titles)):
+        lines+=[Line(i,titles[i])]
+    save([s,[],lines,0])
+    open_mode=True
+
+
 def settings():
+    save_string="Do you want save your\n progress to the current title?\n\n\n\n"
+    open_string="Do you want open a new file?\n\n\n\n"
     return [shortcut(.9,.98,"⚙️",[Textbox(.57,.98,Settings)
             ,link(.83,.85,"+",Settings,upscale),link(.83,.75," -",Settings,downscale)
             ,link(.65,.85,"⬆️",Settings,lambda:pan(0,1000*s)),link(.65,.75,"⬇️",Settings,lambda:pan(0,-1000*s))
             ,link(.57,.8,"⬅️",Settings,lambda:pan(-1000*s,0)),link(.73,.8,"➡️",Settings,lambda:pan(1000*s,0))
+            ,link(.57,.32,"Save",Settings,lambda:save([s,(Textboxes+[Textbox(.2,.8,save_string)
+            ,link(.3,.5,"Yes",save_string,upload)]),Lines,line]))
+            ,link(.57,.24,"Open",Settings,lambda:save([s,(Textboxes+[Textbox(.2,.8,open_string)
+            ,link(.3,.5,"Yes",open_string,Open)]),Lines,line]))
             ])]
 
 def BoilerPlate():
@@ -295,12 +397,25 @@ Textboxes=BoilerPlate()+[Textbox(.1,.98,Intro)
             ,link(.55,.68,"here",Intro,Tutorial)
             ]
 
-Lines=[Line(0," hello"),Line(1," (1,1)")]
-line=0
-past_states=[]
-redo_states=[]
 
 
+
+
+
+def download(title):
+    socket.send_json({
+    "user_id": user_id+":"+title,
+    "action": "history"
+    })
+    state=list(map(lambda string:pickle.loads(bytes(string, "latin1")),listmax(list(map(value,socket.recv_json())))))
+    print("state:",state)
+    save(state)
+    print("state saved?")
+    global open_mode
+    open_mode=False
+    Mouse.click(Button.right)
+
+from parser2 import graphmux
 
 fig, ax = plt.subplots()
 def PLOT(x0,y0,s):
@@ -312,22 +427,28 @@ def PLOT(x0,y0,s):
     plt.grid(color='gray', linestyle='--', linewidth=0.5)
     plt.axhline(y=0, color='k')  # Add horizontal line at y=0
     plt.axvline(x=0, color='k')  # Add vertical line at x=0
+    texts=[]
     for equation in Lines:
         if equation.index==line:
-            sides=equation.text[1:-1].split(",")
+            texts+=[equation.text[1:-1]]
         else:
-            sides=equation.text[1:].split(",")
-        if len(sides)==2 and sides[0][0]=="("and len(sides[1])>0 and sides[1][-1]==")":
-            point=list(map(float,[sides[0][1:],sides[1][:-1]]))
-            try:
-                plt.scatter(point[0],point[1])
-            except:
-                print(point)
+            texts+=[equation.text[1:]]
+    vars,realouts=graphmux(texts,-2,2,0.01,-6,6,0.01)
+    print(vars)
+    errs={}
+    for i,err in realouts:
+        errs[i]=err
     plt.axis([s*(-x0-500),s*(-x0+500),s*(y0-500),s*(y0+500)])
-    for text in Lines+Textboxes:
+    for i in range(len(Lines)):
+        if i in errs.keys():
+            Lines[i].plot("   "+errs[i])
+        else:
+            Lines[i].plot("")
+            
+    for text in Textboxes:
+        
         text.plot()
         #print(text.text)
-    plt.show(block=False)
     plt.pause(10**-100)
     
 kills=0
@@ -359,42 +480,43 @@ def killing():
 
 def on_press(key):
     global command
-    try:
-        char=key.char
-        if not command:
-            lines=deepcopy(Lines)
-            lines[line].text=lines[line].text[:-1]+char+"|"
-            save([s,Textboxes,lines,line])
-        else:
-            if (char=="z"):
-                print("undoing")
-                undo()
-            elif(char=="y"):
-                redo()
-            elif (char=="q"):
-                killing()
-            
-        Mouse.click(Button.right)
-    except AttributeError:
-        if key==keyboard.Key.ctrl:
-            command=True
-        if key==keyboard.Key.backspace:
-            lines=deepcopy(Lines)
-            if len(lines[line].text)>2: 
-                lines[line].text=lines[line].text[:-2]+"|"
+    if not open_mode:
+        try:
+            char=key.char
+            if not command:
+                lines=deepcopy(Lines)
+                lines[line].text=lines[line].text[:-1]+char+"|"
                 save([s,Textboxes,lines,line])
-                Mouse.click(Button.right)
-            elif (len(Lines)>1):
-                try:
-                    lines=deepcopy(Lines)
-                    for i in range(line+1,len(lines)):
-                        lines[i]=Line(i-1,lines[i].text)
-                    lines.pop(line)
-                    save([s,Textboxes,lines,max(line-1,0)])
-                except:
-                    pass
-        print('special key {0} pressed'.format(
-            key))
+            else:
+                if (char=="z"):
+                    print("undoing")
+                    undo()
+                elif(char=="y"):
+                    redo()
+                elif (char=="q"):
+                    killing()
+                
+            Mouse.click(Button.right)
+        except AttributeError:
+            if key==keyboard.Key.ctrl:
+                command=True
+            if key==keyboard.Key.backspace:
+                lines=deepcopy(Lines)
+                if len(lines[line].text)>2: 
+                    lines[line].text=lines[line].text[:-2]+"|"
+                    save([s,Textboxes,lines,line])
+                    Mouse.click(Button.right)
+                elif (len(Lines)>1 and line>0):
+                    try:
+                        lines=deepcopy(Lines)
+                        for i in range(line+1,len(lines)):
+                            lines[i]=Line(i-1,lines[i].text)
+                        lines.pop(line)
+                        save([s,Textboxes,lines,max(line-1,0)])
+                    except:
+                        pass
+            print('special key {0} pressed'.format(
+                key))
 
 
 def warn_about_lines(textboxes,lines):
@@ -420,18 +542,22 @@ def on_release(key):
     if key == keyboard.Key.esc:
         killing()
     if key == keyboard.Key.enter :
-        lines=deepcopy(Lines) 
-        textboxes=deepcopy(Textboxes)
-        for i in range(line+1,len(lines)):
-            lines[i]=Line(i+1,lines[i].text)
-        lines=lines[:line+1]+[Line(line+1," ")]+lines[line+1:]   
-        textboxes=warn_about_lines(textboxes,lines)    
-        save([s,textboxes,lines,line+1])       
-        Mouse.click(Button.right)
+        if not open_mode:
+            lines=deepcopy(Lines) 
+            textboxes=deepcopy(Textboxes)
+            for i in range(line+1,len(lines)):
+                lines[i]=Line(i+1,lines[i].text)
+            lines=lines[:line+1]+[Line(line+1," ")]+lines[line+1:]   
+            textboxes=warn_about_lines(textboxes,lines)    
+            save([s,textboxes,lines,line+1])       
+            Mouse.click(Button.right)
+        else:
+            print("downloading")
+            download(Lines[line].text)
     if key == keyboard.Key.down:
         lines=deepcopy(Lines)
         textboxes=deepcopy(Textboxes)
-        if line>=len(lines)-1:
+        if line>=len(lines)-1 and not open_mode:
             lines+=[Line(line+1," ")]   
         textboxes=warn_about_lines(textboxes,lines)
         save([s,textboxes,lines,line+1])    
@@ -447,9 +573,9 @@ def on_click(x, y, button, pressed):
             start_position = np.array([x,y])
             print(f"Drag started at {start_position}")
             for l in Lines+Textboxes:
-                print(l.text)
+                #print(l.text)
                 if l.clicked(x,y):
-                    print("in bounds")
+                    print(l.text)
         if pressed and button==mouse.Button.right:
             (x0,y0)=axis_position
             PLOT(x0,y0,s)
@@ -495,6 +621,8 @@ print("If you want to close the program at any time use Ctrl-Q or esc")
 print("This program takes control of your mouse to keep the window open are you fine with this? y/n")
 if (input()!="y"):
     exit()
+print("what's your user id?")
+user_id=input() 
 Mouse = Controller()
 keyboard_listener = keyboard.Listener(on_press=on_press,on_release=on_release)
 mouse_listener = mouse.Listener(on_move=on_move, on_click=on_click, on_scroll=on_scroll)
